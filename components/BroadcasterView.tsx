@@ -171,10 +171,11 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
           <Button variant="ghost" className="!p-2 !rounded-full" onClick={onBack} title="Sair do modo Transmissor">
             <ExitIcon />
           </Button>
+          <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
           <div>
-            <h1 className="text-xl font-bold text-slate-100 tracking-tight flex items-center gap-2">
+            <h1 className="text-lg font-bold text-slate-100 tracking-tight flex items-center gap-2">
               Painel do Transmissor
-              <span className="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/30">ADMIN</span>
+              <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/30">ADMIN</span>
             </h1>
           </div>
         </div>

@@ -117,12 +117,9 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
       {!isFullScreen && (
         <header className="px-6 py-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-10 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <span className="text-white font-bold text-lg">V</span>
-            </div>
+            <img src="/logo.png" alt="Logo Igreja" className="w-10 h-10 object-contain" />
             <div>
               <h1 className="text-xl font-bold text-slate-100 tracking-tight">Voz Sereno</h1>
-              <p className="text-xs text-slate-400">Ao Vivo</p>
             </div>
           </div>
 
