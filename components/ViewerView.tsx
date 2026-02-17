@@ -9,6 +9,8 @@ import { supabase } from '../services/supabaseClient';
 const FullScreenIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>;
 const ExitFullScreenIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3" /><path d="M21 8h-3a2 2 0 0 1-2-2V3" /><path d="M3 16h3a2 2 0 0 1 2 2v3" /><path d="M16 21v-3a2 2 0 0 1 2-2h3" /></svg>;
 const FontIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3" /><path d="M9 20h6" /><path d="M12 4v16" /></svg>;
+const PlusIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
+const MinusIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
 
 interface ViewerViewProps {
   onOpenAdmin: () => void;
@@ -100,8 +102,12 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
     }
   };
 
-  const cycleFontSize = () => {
-    setFontSize(prev => prev >= 80 ? 32 : prev + 8);
+  const increaseFontSize = () => {
+    setFontSize(prev => Math.min(prev + 4, 120));
+  };
+
+  const decreaseFontSize = () => {
+    setFontSize(prev => Math.max(prev - 4, 16));
   };
 
   return (
@@ -122,10 +128,18 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
 
           <div className="flex items-center gap-4">
             <LiveBadge visible={isLive} />
-            <div className="flex gap-2">
-              <Button onClick={cycleFontSize} variant="secondary" className="!px-3 !py-2" title="Tamanho da Fonte">
-                <FontIcon />
+            <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1 border border-slate-700">
+              <Button onClick={decreaseFontSize} variant="ghost" className="!p-2 text-slate-400 hover:text-white" title="Diminuir Fonte">
+                <MinusIcon />
               </Button>
+              <div className="px-2 min-w-[3rem] text-center">
+                <span className="text-xs font-bold text-slate-300">{fontSize}px</span>
+              </div>
+              <Button onClick={increaseFontSize} variant="ghost" className="!p-2 text-slate-400 hover:text-white" title="Aumentar Fonte">
+                <PlusIcon />
+              </Button>
+            </div>
+            <div className="flex gap-2">
               <Button onClick={toggleFullScreen} variant="secondary" className="!px-3 !py-2" title="Tela Cheia">
                 <FullScreenIcon />
               </Button>
@@ -138,11 +152,18 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
       {isFullScreen && (
         <div className="fixed top-6 right-6 z-50 flex gap-4 items-center animate-fade-in">
           <LiveBadge visible={isLive} />
-          <div className="flex gap-2 bg-slate-900/40 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 shadow-xl transition-opacity hover:bg-slate-900/80">
-            <Button onClick={cycleFontSize} variant="ghost" className="!p-2 text-white/80 hover:text-white" title="Aumentar Fonte">
-              <FontIcon />
+          <div className="flex items-center gap-1 bg-slate-900/60 backdrop-blur-md p-1 rounded-lg border border-white/10 shadow-xl transition-opacity hover:bg-slate-900/90">
+            <Button onClick={decreaseFontSize} variant="ghost" className="!p-2 text-white/70 hover:text-white" title="Diminuir Fonte">
+              <MinusIcon />
             </Button>
-            <Button variant="ghost" onClick={toggleFullScreen} className="!p-2 text-white/80 hover:text-white" title="Sair da Tela Cheia">
+            <div className="px-2 min-w-[2.5rem] text-center border-x border-white/5 mx-1">
+              <span className="text-[10px] uppercase font-bold text-white/60 tracking-widest">{fontSize}</span>
+            </div>
+            <Button onClick={increaseFontSize} variant="ghost" className="!p-2 text-white/70 hover:text-white" title="Aumentar Fonte">
+              <PlusIcon />
+            </Button>
+            <div className="w-px h-4 bg-white/10 mx-1" />
+            <Button variant="ghost" onClick={toggleFullScreen} className="!p-2 text-white/70 hover:text-white" title="Sair da Tela Cheia">
               <ExitFullScreenIcon />
             </Button>
           </div>
