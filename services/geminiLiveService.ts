@@ -10,19 +10,19 @@ export class GeminiLiveService {
   private stream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
-  
+
   // Callbacks
-  public onTranscriptionUpdate: (text: string, isFinal: boolean) => void = () => {};
-  public onError: (error: string) => void = () => {};
-  public onConnect: () => void = () => {};
-  public onDisconnect: () => void = () => {};
+  public onTranscriptionUpdate: (text: string, isFinal: boolean) => void = () => { };
+  public onError: (error: string) => void = () => { };
+  public onConnect: () => void = () => { };
+  public onDisconnect: () => void = () => { };
 
   private currentInputTranscription = '';
 
   constructor() {
     // Initialize API client
-    // @ts-ignore process.env.API_KEY is injected by the environment
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // @ts-ignore process.env.VITE_GEMINI_API_KEY is injected by the environment
+    this.ai = new GoogleGenAI({ apiKey: process.env.VITE_GEMINI_API_KEY });
   }
 
   /**
@@ -48,8 +48,8 @@ export class GeminiLiveService {
           },
         },
         config: {
-          responseModalities: [Modality.AUDIO], 
-          inputAudioTranscription: {}, 
+          responseModalities: [Modality.AUDIO],
+          inputAudioTranscription: {},
           systemInstruction: `
             Você é um transcritor profissional de legendas ao vivo para Português do Brasil.
             Sua única função é ouvir o áudio e converter fielmente em texto bem pontuado.
@@ -82,7 +82,7 @@ export class GeminiLiveService {
     });
 
     this.source = this.inputAudioContext.createMediaStreamSource(this.stream);
-    
+
     this.processor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
 
     this.processor.onaudioprocess = (e) => {
@@ -119,12 +119,12 @@ export class GeminiLiveService {
       this.stream = null;
     }
 
-     this.sessionPromise?.then(session => {
-        // @ts-ignore 
-        if(typeof session.close === 'function') {
-            session.close();
-        }
-     });
+    this.sessionPromise?.then(session => {
+      // @ts-ignore 
+      if (typeof session.close === 'function') {
+        session.close();
+      }
+    });
 
     this.sessionPromise = null;
     this.currentInputTranscription = '';
@@ -146,7 +146,7 @@ export class GeminiLiveService {
       const rawText = message.serverContent.inputTranscription.text;
       if (rawText) {
         this.currentInputTranscription += rawText;
-        
+
         // Limpa visualmente para a atualização parcial
         const cleanedPartial = this.cleanText(this.currentInputTranscription);
         if (cleanedPartial) {
@@ -157,14 +157,14 @@ export class GeminiLiveService {
 
     if (message.serverContent?.turnComplete) {
       if (this.currentInputTranscription.trim()) {
-         const finalCleaned = this.cleanText(this.currentInputTranscription);
-         
-         // Só envia se sobrou algum texto após a limpeza
-         if (finalCleaned.length > 0) {
-            this.onTranscriptionUpdate(finalCleaned, true);
-         }
-         
-         this.currentInputTranscription = '';
+        const finalCleaned = this.cleanText(this.currentInputTranscription);
+
+        // Só envia se sobrou algum texto após a limpeza
+        if (finalCleaned.length > 0) {
+          this.onTranscriptionUpdate(finalCleaned, true);
+        }
+
+        this.currentInputTranscription = '';
       }
     }
   }
@@ -175,7 +175,7 @@ export class GeminiLiveService {
     for (let i = 0; i < l; i++) {
       int16[i] = Math.max(-1, Math.min(1, data[i])) * 32768;
     }
-    
+
     return {
       data: this.arrayBufferToBase64(int16.buffer),
       mimeType: 'audio/pcm;rate=16000',
