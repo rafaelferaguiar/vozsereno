@@ -1,0 +1,7 @@
+{
+  "name": "Voz Sereno",
+  "description": "Uma aplicação de transcrição de voz em tempo real usando a Gemini Live API. Ideal para acessibilidade, cultos e reuniões.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
