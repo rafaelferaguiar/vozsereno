@@ -22,6 +22,7 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
   const [isLive, setIsLive] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [fontSize, setFontSize] = useState(48); // Fonte maior por padrão para leitura
+  const [showSettings, setShowSettings] = useState(false);
 
   const broadcastChannel = useRef<BroadcastChannel | null>(null);
 
@@ -115,32 +116,54 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
 
       {/* Header (Hidden in full screen) */}
       {!isFullScreen && (
-        <header className="px-6 py-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-10 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo Igreja" className="w-10 h-10 object-contain" />
-            <div>
-              <h1 className="text-xl font-bold text-slate-100 tracking-tight">Voz Sereno</h1>
+        <header className="px-5 py-3 border-b border-slate-800 bg-slate-900/90 backdrop-blur-xl sticky top-0 z-20 flex justify-between items-center shadow-lg">
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <img src="/logo.png" alt="Logo Igreja" className="w-12 h-12 object-contain" />
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-lg font-bold text-slate-100 tracking-tight leading-none">Voz Sereno</h1>
+              <LiveBadge visible={isLive} />
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <LiveBadge visible={isLive} />
-            <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1 border border-slate-700">
-              <Button onClick={decreaseFontSize} variant="ghost" className="!p-2 text-slate-400 hover:text-white" title="Diminuir Fonte">
-                <MinusIcon />
+          <div className="flex items-center gap-2">
+            {/* Font Size Settings Toggle */}
+            <div className="relative">
+              <Button
+                onClick={() => setShowSettings(!showSettings)}
+                variant={showSettings ? "primary" : "secondary"}
+                className="!p-2.5 rounded-full"
+                title="Configurar Legenda"
+              >
+                <FontIcon />
               </Button>
-              <div className="px-2 min-w-[3rem] text-center">
-                <span className="text-xs font-bold text-slate-300">{fontSize}px</span>
-              </div>
-              <Button onClick={increaseFontSize} variant="ghost" className="!p-2 text-slate-400 hover:text-white" title="Aumentar Fonte">
-                <PlusIcon />
-              </Button>
+
+              {showSettings && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setShowSettings(false)}
+                  />
+                  <div className="absolute right-0 mt-3 w-48 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-4 z-40 animate-in fade-in zoom-in duration-200 origin-top-right">
+                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-3">Tamanho da Fonte</p>
+                    <div className="flex items-center justify-between gap-2 bg-slate-900/50 rounded-xl p-2 border border-slate-700">
+                      <Button onClick={decreaseFontSize} variant="ghost" className="!p-2 text-slate-300 hover:text-white hover:bg-slate-700" title="Diminuir">
+                        <MinusIcon />
+                      </Button>
+                      <span className="text-sm font-bold text-slate-100 min-w-[3rem] text-center">{fontSize}px</span>
+                      <Button onClick={increaseFontSize} variant="ghost" className="!p-2 text-slate-300 hover:text-white hover:bg-slate-700" title="Aumentar">
+                        <PlusIcon />
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <div className="flex gap-2">
-              <Button onClick={toggleFullScreen} variant="secondary" className="!px-3 !py-2" title="Tela Cheia">
-                <FullScreenIcon />
-              </Button>
-            </div>
+
+            <Button onClick={toggleFullScreen} variant="secondary" className="!p-2.5 rounded-full" title="Tela Cheia">
+              <FullScreenIcon />
+            </Button>
           </div>
         </header>
       )}
