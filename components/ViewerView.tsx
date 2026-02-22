@@ -14,9 +14,10 @@ const MinusIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" heigh
 
 interface ViewerViewProps {
   onOpenAdmin: () => void;
+  isLiveExternal?: boolean;
 }
 
-export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
+export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin, isLiveExternal }) => {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [currentPartial, setCurrentPartial] = useState<string>('');
   const [isLive, setIsLive] = useState(false);
@@ -38,12 +39,19 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
     };
   }, []);
 
+  // Sync with external live status
+  useEffect(() => {
+    if (typeof isLiveExternal !== 'undefined') {
+      setIsLive(isLiveExternal);
+    }
+  }, [isLiveExternal]);
+
   useEffect(() => {
     // 1. Busca estado inicial
     const fetchInitialState = async () => {
       const { data, error } = await supabase
         .from('transcription_state')
-        .select('*')
+        .select('segments, current_partial, is_live')
         .eq('id', 1)
         .single();
 
@@ -55,19 +63,21 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
           })));
         }
         setCurrentPartial(data.current_partial || '');
-        setIsLive(data.is_live || false);
+        if (typeof isLiveExternal === 'undefined') {
+          setIsLive(data.is_live || false);
+        }
       }
     };
 
     fetchInitialState();
 
-    // 2. Inscreve para atualizações em tempo real
+    // 2. Inscreve para atualizações em tempo real (excetois_live que já é tratado no App.tsx ou acima)
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel('segments-updates')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'UPDATE',
           schema: 'public',
           table: 'transcription_state',
           filter: 'id=eq.1'
@@ -81,7 +91,10 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
             })));
           }
           setCurrentPartial(newData.current_partial || '');
-          setIsLive(newData.is_live || false);
+          // is_live is handled externally if provided, but we update locally if not
+          if (typeof isLiveExternal === 'undefined') {
+            setIsLive(newData.is_live || false);
+          }
         }
       )
       .subscribe();
@@ -89,7 +102,7 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [isLiveExternal]);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {

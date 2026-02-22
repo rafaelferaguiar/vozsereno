@@ -1,15 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BroadcasterView } from './components/BroadcasterView';
 import { ViewerView } from './components/ViewerView';
 import { Button } from './components/Button';
+import { LandingView } from './components/LandingView';
+import { supabase } from './services/supabaseClient';
 
-type AppMode = 'VIEWER' | 'BROADCASTER';
+type AppMode = 'LANDING' | 'VIEWER' | 'BROADCASTER';
 
 function App() {
-  const [mode, setMode] = useState<AppMode>('VIEWER');
+  const [mode, setMode] = useState<AppMode>('LANDING');
+  const [isLive, setIsLive] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  // Fetch live status in App level to share across views
+  useEffect(() => {
+    const fetchInitialLiveStatus = async () => {
+      const { data } = await supabase
+        .from('transcription_state')
+        .select('is_live')
+        .eq('id', 1)
+        .single();
+
+      if (data) setIsLive(data.is_live);
+    };
+
+    fetchInitialLiveStatus();
+
+    const channel = supabase
+      .channel('live-status-global')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'transcription_state', filter: 'id=eq.1' },
+        (payload) => {
+          if (payload.new && typeof payload.new.is_live !== 'undefined') {
+            setIsLive(payload.new.is_live);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,14 +68,22 @@ function App() {
     setError('');
   };
 
+  const renderContent = () => {
+    switch (mode) {
+      case 'LANDING':
+        return <LandingView onStart={() => setMode('VIEWER')} isLive={isLive} />;
+      case 'BROADCASTER':
+        return <BroadcasterView onBack={() => setMode('VIEWER')} />;
+      case 'VIEWER':
+      default:
+        return <ViewerView onOpenAdmin={handleOpenAdmin} isLiveExternal={isLive} />;
+    }
+  };
+
   return (
     <>
       {/* Componente Principal baseado no Modo */}
-      {mode === 'BROADCASTER' ? (
-        <BroadcasterView onBack={() => setMode('VIEWER')} />
-      ) : (
-        <ViewerView onOpenAdmin={handleOpenAdmin} />
-      )}
+      {renderContent()}
 
       {/* Modal de Login */}
       {showLogin && (
