@@ -40,8 +40,8 @@ export const TranscriptDisplay: React.FC<TranscriptDisplayProps> = ({
       style={{ scrollBehavior: 'auto', touchAction: 'pan-y' }}
     >
       <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full">
-        {/* History Segments */}
-        {segments.map((seg) => (
+        {/* History Segments (Limita aos últimos 3 para não estourar a tela) */}
+        {segments.slice(-3).map((seg) => (
           <p
             key={seg.id}
             className={`transition-opacity duration-500 text-slate-300 ${isFullScreen ? 'opacity-80' : 'opacity-70'}`}

@@ -13,6 +13,15 @@ const StopIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height
 const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>;
 const DownloadIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
 const ExitIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>;
+const PauseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="4" height="16" x="6" y="4" /><rect width="4" height="16" x="14" y="4" /></svg>;
+const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>;
+
+const PRESET_MESSAGES = [
+  "Momento do louvor, as letras estarão passando no telão.",
+  "Momento de oração.",
+  "Avisos da Igreja.",
+  "O Culto retornará em breve."
+];
 
 interface BroadcasterViewProps {
   onBack: () => void;
@@ -23,9 +32,13 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [currentPartial, setCurrentPartial] = useState<string>('');
   const [audioSource, setAudioSource] = useState<AudioSourceType>(AudioSourceType.MICROPHONE);
+  const [isPaused, setIsPaused] = useState(false);
+  const [pauseMessage, setPauseMessage] = useState('');
 
   const liveService = useRef<GeminiLiveService>(new GeminiLiveService());
   const broadcastChannel = useRef<BroadcastChannel | null>(null);
+  const intentionalStop = useRef(false);
+  const isPausedRef = useRef(false);
 
   // Setup Broadcast Channel
   useEffect(() => {
@@ -53,14 +66,26 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
     }
   }, []);
 
+  // Configura estado de Pause via Ref
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+    if (isPaused && pauseMessage) {
+      setCurrentPartial(''); // Limpa texto temporário
+    }
+  }, [isPaused, pauseMessage]);
+
   // Monitora mudanças de estado e transmite
   useEffect(() => {
     const timer = setTimeout(() => {
-      broadcastState(segments, currentPartial, status.isRecording);
+      // Se estiver pausado com preset, envia o preset como partial e esconde blocos anteriores.
+      const broadcastPartial = isPaused ? (pauseMessage ? `⏸ ${pauseMessage}` : '[Legendas Pausadas]') : currentPartial;
+      const broadcastSegments = isPaused ? [] : segments;
+
+      broadcastState(broadcastSegments, broadcastPartial, status.isRecording);
     }, 500); // Debounce para não sobrecarregar o banco
 
     return () => clearTimeout(timer);
-  }, [segments, currentPartial, status.isRecording, broadcastState]);
+  }, [segments, currentPartial, status.isRecording, isPaused, pauseMessage, broadcastState]);
 
   // Setup Service Callbacks
   useEffect(() => {
@@ -72,14 +97,33 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
     service.onDisconnect = () => {
       setStatus(prev => ({ ...prev, isConnected: false, isRecording: false }));
+
+      // Reconexão automática se a queda não foi intencional (Timeout do Gemini ou erro de Rede)
+      if (!intentionalStop.current) {
+        console.warn("✨ Conexão perdida! Tentando reconectar automaticamente em 2s...");
+        setTimeout(() => {
+          if (!intentionalStop.current) {
+            handleStart().catch(console.error);
+          }
+        }, 2000);
+      }
     };
 
     service.onError = (err) => {
       setStatus(prev => ({ ...prev, error: err, isRecording: false }));
+      if (!intentionalStop.current) {
+        // Tentativa de reconexão em caso de erro severo
+        setTimeout(() => {
+          if (!intentionalStop.current) handleStart().catch(console.error);
+        }, 3000);
+      }
     };
 
     // Aqui removemos a dependência de 'segments' e 'currentPartial' usando updates funcionais
     service.onTranscriptionUpdate = (text, isFinal) => {
+      // Ignorar se a legenda estiver pausada
+      if (isPausedRef.current) return;
+
       if (isFinal) {
         setSegments(prev => [
           ...prev,
@@ -104,7 +148,8 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
   const handleStart = async () => {
     try {
-      setStatus(prev => ({ ...prev, error: undefined }));
+      intentionalStop.current = false;
+      setStatus(prev => ({ ...prev, error: undefined, isRecording: true }));
 
       let stream: MediaStream;
 
@@ -143,6 +188,9 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
   };
 
   const handleStop = useCallback(async () => {
+    intentionalStop.current = true;
+    setIsPaused(false);
+    setPauseMessage('');
     await liveService.current.disconnect();
     setStatus(prev => ({ ...prev, isRecording: false, isConnected: false }));
   }, []);
@@ -243,6 +291,53 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
               <Button onClick={handleDownload} variant="secondary" className="!px-3" title="Baixar Transcrição">
                 <DownloadIcon />
               </Button>
+            </div>
+          </div>
+
+          {/* Preset / Pause Feature */}
+          <div className="max-w-6xl mx-auto mt-4 pt-4 border-t border-slate-700/50">
+            <div className="flex flex-col gap-2">
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-widest flex items-center justify-between">
+                Layouts Predefinidos & Pausa
+                {isPaused && <span className="text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full animate-pulse">Pausado</span>}
+              </span>
+              <div className="flex flex-wrap gap-2 items-center">
+                {isPaused ? (
+                  <Button
+                    onClick={() => { setIsPaused(false); setPauseMessage(''); }}
+                    className="!bg-indigo-600 hover:!bg-indigo-500 !text-white !py-1.5 shadow-[0_0_15px_rgba(79,70,229,0.5)] !gap-1"
+                  >
+                    <PlayIcon /> Retomar Legendas
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => { setIsPaused(true); setPauseMessage(''); }}
+                    variant="secondary"
+                    className="hover:!text-amber-400 !py-1.5 !gap-1"
+                    title="Pausar o áudio momentaneamente"
+                  >
+                    <PauseIcon /> Pausar
+                  </Button>
+                )}
+
+                <div className="w-px h-6 bg-slate-700/50 mx-1" />
+
+                {PRESET_MESSAGES.map((msg, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setIsPaused(true);
+                      setPauseMessage(msg);
+                    }}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${isPaused && pauseMessage === msg
+                        ? 'bg-amber-600 text-white shadow-lg ring-2 ring-amber-500/50'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700 active:scale-95'
+                      }`}
+                  >
+                    {msg}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
