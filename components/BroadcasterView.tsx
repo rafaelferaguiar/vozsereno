@@ -88,7 +88,7 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
       const broadcastSegments = isPaused ? [] : segments;
 
       broadcastState(broadcastSegments, broadcastPartial, status.isRecording);
-    }, 500); // Debounce para não sobrecarregar o banco
+    }, 120); // Debounce curto para menor latência no viewer
 
     return () => clearTimeout(timer);
   }, [segments, currentPartial, status.isRecording, isPaused, pauseMessage, broadcastState]);

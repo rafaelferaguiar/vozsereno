@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { TranscriptSegment } from '../types';
 
 interface TranscriptDisplayProps {
@@ -6,6 +6,76 @@ interface TranscriptDisplayProps {
   currentPartial: string;
   isFullScreen: boolean;
   fontSize: number;
+}
+
+/**
+ * Typewriter hook: animates from the currently displayed text towards the target text.
+ * - If target grows (new chars): reveals them at ~30ms/char (snappy, feels live)
+ * - If target shrinks or changes completely (new sentence): resets immediately
+ */
+function useTypewriter(target: string, charsPerMs = 18) {
+  const [displayed, setDisplayed] = useState('');
+  const rafRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number>(0);
+  const displayedRef = useRef('');
+
+  // Cancel any running animation
+  const cancel = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    cancel();
+
+    if (!target) {
+      displayedRef.current = '';
+      setDisplayed('');
+      return;
+    }
+
+    // If the target starts with what we already have → just reveal remaining chars
+    const shared = displayedRef.current.length <= target.length && target.startsWith(displayedRef.current);
+
+    if (!shared) {
+      // New unrelated text → jump immediately to reduce confusion
+      displayedRef.current = target;
+      setDisplayed(target);
+      return;
+    }
+
+    // Animate the reveal of additional characters
+    let startIndex = displayedRef.current.length;
+
+    const animate = (timestamp: number) => {
+      if (!lastTimeRef.current) lastTimeRef.current = timestamp;
+      const elapsed = timestamp - lastTimeRef.current;
+      const charsToReveal = Math.floor(elapsed / charsPerMs);
+
+      if (charsToReveal > 0) {
+        lastTimeRef.current = timestamp;
+        startIndex = Math.min(startIndex + charsToReveal, target.length);
+        const next = target.slice(0, startIndex);
+        displayedRef.current = next;
+        setDisplayed(next);
+      }
+
+      if (startIndex < target.length) {
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        rafRef.current = null;
+      }
+    };
+
+    lastTimeRef.current = 0;
+    rafRef.current = requestAnimationFrame(animate);
+
+    return cancel;
+  }, [target, cancel, charsPerMs]);
+
+  return displayed;
 }
 
 export const TranscriptDisplay: React.FC<TranscriptDisplayProps> = ({
@@ -16,19 +86,19 @@ export const TranscriptDisplay: React.FC<TranscriptDisplayProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom
+  // Admin gets updates fast (direct Gemini callbacks) → faster typewriter
+  // Viewer gets updates via Supabase → typewriter hides the network gap
+  const animatedPartial = useTypewriter(currentPartial, 18);
+
+  // Auto-scroll to bottom whenever content changes
   useEffect(() => {
     if (containerRef.current) {
       const container = containerRef.current;
-      // Use requestAnimationFrame for smoother scrolling without triggering browser zoom behaviors
       requestAnimationFrame(() => {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: 'smooth'
-        });
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
       });
     }
-  }, [segments, currentPartial]);
+  }, [segments, animatedPartial]);
 
   return (
     <div
@@ -40,7 +110,7 @@ export const TranscriptDisplay: React.FC<TranscriptDisplayProps> = ({
       style={{ scrollBehavior: 'auto', touchAction: 'pan-y' }}
     >
       <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full">
-        {/* History Segments (Limita aos últimos 3 para não estourar a tela) */}
+        {/* History Segments – last 3 only to avoid scroll */}
         {segments.slice(-3).map((seg) => (
           <p
             key={seg.id}
@@ -51,14 +121,14 @@ export const TranscriptDisplay: React.FC<TranscriptDisplayProps> = ({
           </p>
         ))}
 
-        {/* Current Live Segment - Highlighted */}
+        {/* Current Live Segment – animated typewriter */}
         {(currentPartial || segments.length === 0) && (
           <div className="mt-4">
             <p
-              className={`font-semibold text-white tracking-wide animate-pulse-slow transition-all`}
+              className="font-semibold text-white tracking-wide transition-all"
               style={{ fontSize: `${fontSize}px`, lineHeight: '1.4' }}
             >
-              {currentPartial}
+              {animatedPartial}
               <span className="inline-block w-2 h-[1em] ml-1 bg-indigo-500 align-middle animate-blink rounded-sm" />
             </p>
             {segments.length === 0 && !currentPartial && (
