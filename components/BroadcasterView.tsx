@@ -102,11 +102,10 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
       setStatus(prev => ({ ...prev, isConnected: true, error: undefined }));
     };
 
-    service.onDisconnect = (isFatal: boolean) => {
+    service.onDisconnect = (isFatal: boolean, code: number) => {
       setStatus(prev => ({ ...prev, isConnected: false, isRecording: false }));
       setReconnecting(false);
 
-      // Never reconnect if: user stopped intentionally, error is fatal (bad model/config), or too many retries
       if (intentionalStop.current) return;
       if (isFatal) {
         console.error('[BroadcasterView] ❌ Fatal error — will NOT reconnect. Check model name or API key.');
@@ -115,13 +114,15 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
       }
       if (reconnectCount.current >= MAX_RECONNECTS) {
         console.error('[BroadcasterView] ❌ Max reconnect attempts reached. Giving up.');
-        setStatus(prev => ({ ...prev, error: `Reconnected ${MAX_RECONNECTS}x sem sucesso. Pressione Iniciar.` }));
+        setStatus(prev => ({ ...prev, error: `${MAX_RECONNECTS} reconexões sem sucesso. Pressione Iniciar.` }));
         return;
       }
 
       reconnectCount.current += 1;
-      const delay = Math.min(1000 * reconnectCount.current, 8000); // Exponential backoff capped at 8s
-      console.warn(`[BroadcasterView] 🔄 Attempt ${reconnectCount.current}/${MAX_RECONNECTS} — reconnecting in ${delay}ms...`);
+      // code=1000 = normal session close (server-side timeout after turn) → reconnect fast (300ms)
+      // Other codes = real network issue → exponential backoff
+      const delay = code === 1000 ? 300 : Math.min(1000 * reconnectCount.current, 8000);
+      console.warn(`[BroadcasterView] 🔄 Attempt ${reconnectCount.current}/${MAX_RECONNECTS} — reconnecting in ${delay}ms (code=${code})...`);
 
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       reconnectTimer.current = setTimeout(async () => {
@@ -138,7 +139,6 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
         } catch (err: any) {
           console.error('[BroadcasterView] ❌ Reconnect failed:', err);
           setReconnecting(false);
-          // onDisconnect will fire again and handle the next retry
         }
       }, delay);
     };

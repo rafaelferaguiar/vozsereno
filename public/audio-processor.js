@@ -1,12 +1,15 @@
 /**
  * AudioWorkletProcessor — roda em thread dedicada de áudio, imune a throttling do browser.
  * Coleta amostras, converte para PCM Int16 e envia ao thread principal via MessagePort.
+ * Buffer menor = menor latência = menos palavras perdidas em fala rápida.
  */
 class PCMProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
+    // 512 amostras a 16kHz = ~32ms por chunk
+    // Mais frequente = menor latência, menos risco de perder sílabas em fala rápida
     this._buffer = [];
-    this._bufferSize = 2048; // ~128ms a 16kHz - bom balanço latência/estabilidade
+    this._bufferSize = 512;
   }
 
   process(inputs) {

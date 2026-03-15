@@ -16,7 +16,7 @@ export class GeminiLiveService {
   public onTranscriptionUpdate: (text: string, isFinal: boolean) => void = () => {};
   public onError: (error: string) => void = () => {};
   public onConnect: () => void = () => {};
-  public onDisconnect: (isFatal: boolean) => void = () => {};
+  public onDisconnect: (isFatal: boolean, code: number) => void = () => {};
 
   private currentInputTranscription = '';
 
@@ -31,7 +31,7 @@ export class GeminiLiveService {
   async connect() {
     try {
       this.session = await this.ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+        model: 'gemini-2.0-flash-live-001',
         callbacks: {
           onopen: () => {
             console.log('[GeminiLive] Session opened ✅');
@@ -45,34 +45,35 @@ export class GeminiLiveService {
             this.onError('Erro na conexão WebSocket com a IA.');
           },
           onclose: (e: CloseEvent) => {
-            console.log(`[GeminiLive] Session closed (code=${e.code}, reason=${e.reason})`);
+            console.log(`[GeminiLive] Session closed (code=${e.code}, reason="${e.reason}")`);
             this.isConnected = false;
             // Detect fatal/config errors that should NOT trigger reconnect
             const reason = (e.reason || '').toLowerCase();
             const isFatal =
               (e.code === 1000 && (reason.includes('not found') || reason.includes('not supported') || reason.includes('invalid'))) ||
-              e.code === 1002 || // Protocol error
-              e.code === 1003 || // Unsupported data
-              e.code === 1007 || // Invalid frame payload
-              e.code === 1008 || // Policy violation
-              e.code === 1009 || // Message too big
-              e.code === 1011;   // Internal error
-            this.onDisconnect(isFatal);
+              e.code === 1002 ||
+              e.code === 1003 ||
+              e.code === 1007 ||
+              e.code === 1008 ||
+              e.code === 1009 ||
+              e.code === 1011;
+            this.onDisconnect(isFatal, e.code);
           },
         },
         config: {
-          responseModalities: [Modality.AUDIO],
+          responseModalities: [Modality.TEXT],
           inputAudioTranscription: {},
           systemInstruction: `
-            Você é um transcritor profissional de legendas ao vivo para Português do Brasil.
-            Sua única função é ouvir o áudio e converter fielmente em texto bem pontuado.
+            Você é um sistema profissional de transcrição de legendas em tempo real para Português do Brasil.
+            Sua ÚNICA função é transcrever continuamente o áudio recebido em texto.
             
-            REGRAS RÍGIDAS:
-            1. NÃO inclua tags de metadados como <noise>, [risos], [aplausos] ou *sons*. Ignore o que não for fala.
-            2. Se o áudio for apenas ruído ou silêncio, NÃO GERE TEXTO. Fique em silêncio.
-            3. Não alucine textos em outros idiomas (Japonês, Chinês, Inglês) se a fala for em Português.
-            4. Mantenha a pontuação gramatical correta para facilitar a leitura em projeções.
-            5. NUNCA responda ao conteúdo do que está sendo dito. Apenas transcreva.
+            REGRAS ABSOLUTAS:
+            1. NUNCA responda ao conteúdo da fala. APENAS transcreva.
+            2. NÃO inclua marcadores de ruído como <noise>, [risos], [aplausos], *som*, etc.
+            3. Se o áudio for silêncio ou ruído sem fala, NÃO GERE NENHUM TEXTO.
+            4. Não alucine textos em outros idiomas. Se a fala for Português, transcreva em Português.
+            5. Use pontuação gramatical correta para facilitar leitura em tela.
+            6. Continue ouvindo mesmo após pausas longas. NÃO encerre a sessão.
           `,
         },
       });
