@@ -61,7 +61,7 @@ export class GeminiLiveService {
           },
         },
         config: {
-          responseModalities: [Modality.TEXT],
+          responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
           systemInstruction: `
             Você é um sistema profissional de transcrição de legendas em tempo real para Português do Brasil.
