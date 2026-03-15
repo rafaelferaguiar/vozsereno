@@ -43,6 +43,8 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
   const audioSourceRef = useRef<AudioSourceType>(AudioSourceType.MICROPHONE);
   const activeStreamRef = useRef<MediaStream | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectCount = useRef(0);
+  const MAX_RECONNECTS = 5;
 
   // Setup Broadcast Channel
   useEffect(() => {
@@ -96,61 +98,56 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
     const service = liveService.current;
 
     service.onConnect = () => {
+      reconnectCount.current = 0; // Reset counter on successful connection
       setStatus(prev => ({ ...prev, isConnected: true, error: undefined }));
     };
 
-    service.onDisconnect = () => {
+    service.onDisconnect = (isFatal: boolean) => {
       setStatus(prev => ({ ...prev, isConnected: false, isRecording: false }));
       setReconnecting(false);
 
-      // Auto-reconnect only if not intentionally stopped
-      if (!intentionalStop.current) {
-        console.warn('[BroadcasterView] 🔄 Unexpected disconnect — scheduling reconnect in 2s...');
-        // Cancel any existing reconnect timer
-        if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = setTimeout(async () => {
-          if (intentionalStop.current) return;
-          try {
-            setReconnecting(true);
-            // Reconnect using the SAME stream (no need to re-request mic permission)
-            await liveService.current.connect();
-            if (activeStreamRef.current) {
-              await liveService.current.startAudioStream(activeStreamRef.current);
-            }
-            setStatus(prev => ({ ...prev, isRecording: true, isConnected: true, error: undefined }));
-            setReconnecting(false);
-            console.log('[BroadcasterView] ✅ Reconnected successfully');
-          } catch (err: any) {
-            console.error('[BroadcasterView] ❌ Reconnect failed:', err);
-            setReconnecting(false);
-            setStatus(prev => ({ ...prev, error: 'Falha na reconexão automática. Pressione Iniciar.' }));
-          }
-        }, 2000);
+      // Never reconnect if: user stopped intentionally, error is fatal (bad model/config), or too many retries
+      if (intentionalStop.current) return;
+      if (isFatal) {
+        console.error('[BroadcasterView] ❌ Fatal error — will NOT reconnect. Check model name or API key.');
+        setStatus(prev => ({ ...prev, error: 'Erro fatal na API. Verifique sua chave ou tente novamente.' }));
+        return;
       }
+      if (reconnectCount.current >= MAX_RECONNECTS) {
+        console.error('[BroadcasterView] ❌ Max reconnect attempts reached. Giving up.');
+        setStatus(prev => ({ ...prev, error: `Reconnected ${MAX_RECONNECTS}x sem sucesso. Pressione Iniciar.` }));
+        return;
+      }
+
+      reconnectCount.current += 1;
+      const delay = Math.min(1000 * reconnectCount.current, 8000); // Exponential backoff capped at 8s
+      console.warn(`[BroadcasterView] 🔄 Attempt ${reconnectCount.current}/${MAX_RECONNECTS} — reconnecting in ${delay}ms...`);
+
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = setTimeout(async () => {
+        if (intentionalStop.current) return;
+        try {
+          setReconnecting(true);
+          await liveService.current.connect();
+          if (activeStreamRef.current && activeStreamRef.current.active) {
+            await liveService.current.startAudioStream(activeStreamRef.current);
+          }
+          setStatus(prev => ({ ...prev, isRecording: true, isConnected: true, error: undefined }));
+          setReconnecting(false);
+          console.log('[BroadcasterView] ✅ Reconnected successfully');
+        } catch (err: any) {
+          console.error('[BroadcasterView] ❌ Reconnect failed:', err);
+          setReconnecting(false);
+          // onDisconnect will fire again and handle the next retry
+        }
+      }, delay);
     };
 
     service.onError = (err) => {
+      console.error('[BroadcasterView] onError:', err);
       setStatus(prev => ({ ...prev, error: err, isRecording: false }));
       setReconnecting(false);
-      // Trigger reconnect on error too
-      if (!intentionalStop.current) {
-        if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = setTimeout(async () => {
-          if (!intentionalStop.current) {
-            try {
-              setReconnecting(true);
-              await liveService.current.connect();
-              if (activeStreamRef.current) {
-                await liveService.current.startAudioStream(activeStreamRef.current);
-              }
-              setStatus(prev => ({ ...prev, isRecording: true, isConnected: true, error: undefined }));
-              setReconnecting(false);
-            } catch (e: any) {
-              setReconnecting(false);
-            }
-          }
-        }, 3000);
-      }
+      // onDisconnect will be called by the WebSocket close event and handle retry
     };
 
     // Aqui removemos a dependência de 'segments' e 'currentPartial' usando updates funcionais
@@ -230,12 +227,12 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
   const handleStop = useCallback(async () => {
     intentionalStop.current = true;
+    reconnectCount.current = 0;
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     setIsPaused(false);
     setPauseMessage('');
     setReconnecting(false);
     await liveService.current.disconnect();
-    // Keep activeStreamRef alive so user doesn't need to re-grant permission on restart
     setStatus(prev => ({ ...prev, isRecording: false, isConnected: false }));
   }, []);
 

@@ -16,7 +16,7 @@ export class GeminiLiveService {
   public onTranscriptionUpdate: (text: string, isFinal: boolean) => void = () => {};
   public onError: (error: string) => void = () => {};
   public onConnect: () => void = () => {};
-  public onDisconnect: () => void = () => {};
+  public onDisconnect: (isFatal: boolean) => void = () => {};
 
   private currentInputTranscription = '';
 
@@ -31,7 +31,7 @@ export class GeminiLiveService {
   async connect() {
     try {
       this.session = await this.ai.live.connect({
-        model: 'gemini-2.5-flash-preview-native-audio-dialog',
+        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
             console.log('[GeminiLive] Session opened ✅');
@@ -47,11 +47,21 @@ export class GeminiLiveService {
           onclose: (e: CloseEvent) => {
             console.log(`[GeminiLive] Session closed (code=${e.code}, reason=${e.reason})`);
             this.isConnected = false;
-            this.onDisconnect();
+            // Detect fatal/config errors that should NOT trigger reconnect
+            const reason = (e.reason || '').toLowerCase();
+            const isFatal =
+              (e.code === 1000 && (reason.includes('not found') || reason.includes('not supported') || reason.includes('invalid'))) ||
+              e.code === 1002 || // Protocol error
+              e.code === 1003 || // Unsupported data
+              e.code === 1007 || // Invalid frame payload
+              e.code === 1008 || // Policy violation
+              e.code === 1009 || // Message too big
+              e.code === 1011;   // Internal error
+            this.onDisconnect(isFatal);
           },
         },
         config: {
-          responseModalities: [Modality.TEXT],
+          responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
           systemInstruction: `
             Você é um transcritor profissional de legendas ao vivo para Português do Brasil.
