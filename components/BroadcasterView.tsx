@@ -34,11 +34,15 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
   const [audioSource, setAudioSource] = useState<AudioSourceType>(AudioSourceType.MICROPHONE);
   const [isPaused, setIsPaused] = useState(false);
   const [pauseMessage, setPauseMessage] = useState('');
+  const [reconnecting, setReconnecting] = useState(false);
 
   const liveService = useRef<GeminiLiveService>(new GeminiLiveService());
   const broadcastChannel = useRef<BroadcastChannel | null>(null);
   const intentionalStop = useRef(false);
   const isPausedRef = useRef(false);
+  const audioSourceRef = useRef<AudioSourceType>(AudioSourceType.MICROPHONE);
+  const activeStreamRef = useRef<MediaStream | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Setup Broadcast Channel
   useEffect(() => {
@@ -97,13 +101,29 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
     service.onDisconnect = () => {
       setStatus(prev => ({ ...prev, isConnected: false, isRecording: false }));
+      setReconnecting(false);
 
-      // Reconexão automática se a queda não foi intencional (Timeout do Gemini ou erro de Rede)
+      // Auto-reconnect only if not intentionally stopped
       if (!intentionalStop.current) {
-        console.warn("✨ Conexão perdida! Tentando reconectar automaticamente em 2s...");
-        setTimeout(() => {
-          if (!intentionalStop.current) {
-            handleStart().catch(console.error);
+        console.warn('[BroadcasterView] 🔄 Unexpected disconnect — scheduling reconnect in 2s...');
+        // Cancel any existing reconnect timer
+        if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = setTimeout(async () => {
+          if (intentionalStop.current) return;
+          try {
+            setReconnecting(true);
+            // Reconnect using the SAME stream (no need to re-request mic permission)
+            await liveService.current.connect();
+            if (activeStreamRef.current) {
+              await liveService.current.startAudioStream(activeStreamRef.current);
+            }
+            setStatus(prev => ({ ...prev, isRecording: true, isConnected: true, error: undefined }));
+            setReconnecting(false);
+            console.log('[BroadcasterView] ✅ Reconnected successfully');
+          } catch (err: any) {
+            console.error('[BroadcasterView] ❌ Reconnect failed:', err);
+            setReconnecting(false);
+            setStatus(prev => ({ ...prev, error: 'Falha na reconexão automática. Pressione Iniciar.' }));
           }
         }, 2000);
       }
@@ -111,10 +131,24 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
     service.onError = (err) => {
       setStatus(prev => ({ ...prev, error: err, isRecording: false }));
+      setReconnecting(false);
+      // Trigger reconnect on error too
       if (!intentionalStop.current) {
-        // Tentativa de reconexão em caso de erro severo
-        setTimeout(() => {
-          if (!intentionalStop.current) handleStart().catch(console.error);
+        if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = setTimeout(async () => {
+          if (!intentionalStop.current) {
+            try {
+              setReconnecting(true);
+              await liveService.current.connect();
+              if (activeStreamRef.current) {
+                await liveService.current.startAudioStream(activeStreamRef.current);
+              }
+              setStatus(prev => ({ ...prev, isRecording: true, isConnected: true, error: undefined }));
+              setReconnecting(false);
+            } catch (e: any) {
+              setReconnecting(false);
+            }
+          }
         }, 3000);
       }
     };
@@ -153,7 +187,10 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
       let stream: MediaStream;
 
-      if (audioSource === AudioSourceType.SYSTEM_AUDIO) {
+      // Reuse existing stream if available and still active — avoids re-requesting permissions
+      if (activeStreamRef.current && activeStreamRef.current.active) {
+        stream = activeStreamRef.current;
+      } else if (audioSourceRef.current === AudioSourceType.SYSTEM_AUDIO) {
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: { width: 1, height: 1 },
           audio: {
@@ -163,15 +200,18 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
             channelCount: 1
           }
         });
+        activeStreamRef.current = stream;
       } else {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
             autoGainControl: true,
             noiseSuppression: true,
-            channelCount: 1
+            channelCount: 1,
+            sampleRate: 16000,
           }
         });
+        activeStreamRef.current = stream;
       }
 
       await liveService.current.connect();
@@ -182,6 +222,7 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
       console.error(err);
       setStatus(prev => ({
         ...prev,
+        isRecording: false,
         error: "Erro ao iniciar captura de áudio. Verifique permissões."
       }));
     }
@@ -189,9 +230,12 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
   const handleStop = useCallback(async () => {
     intentionalStop.current = true;
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     setIsPaused(false);
     setPauseMessage('');
+    setReconnecting(false);
     await liveService.current.disconnect();
+    // Keep activeStreamRef alive so user doesn't need to re-grant permission on restart
     setStatus(prev => ({ ...prev, isRecording: false, isConnected: false }));
   }, []);
 
@@ -239,6 +283,13 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
         </div>
       </header>
 
+      {reconnecting && (
+        <div className="px-6 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <span className="text-amber-400 text-xs font-semibold">Reconectando automaticamente...</span>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="flex-1 flex flex-col relative overflow-hidden">
         <div className="flex-1 flex flex-col w-full mx-auto relative z-0">
@@ -257,14 +308,14 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
 
             <div className="flex bg-slate-800 p-1 rounded-lg">
               <button
-                onClick={() => setAudioSource(AudioSourceType.MICROPHONE)}
+                onClick={() => { audioSourceRef.current = AudioSourceType.MICROPHONE; setAudioSource(AudioSourceType.MICROPHONE); }}
                 className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${audioSource === AudioSourceType.MICROPHONE ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
                 disabled={status.isRecording}
               >
                 <MicIcon /> Mic
               </button>
               <button
-                onClick={() => setAudioSource(AudioSourceType.SYSTEM_AUDIO)}
+                onClick={() => { audioSourceRef.current = AudioSourceType.SYSTEM_AUDIO; setAudioSource(AudioSourceType.SYSTEM_AUDIO); }}
                 className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${audioSource === AudioSourceType.SYSTEM_AUDIO ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}
                 disabled={status.isRecording}
               >

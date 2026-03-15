@@ -5,112 +5,141 @@ const INPUT_SAMPLE_RATE = 16000;
 
 export class GeminiLiveService {
   private ai: GoogleGenAI;
-  private sessionPromise: Promise<any> | null = null;
+  private session: any = null;
   private inputAudioContext: AudioContext | null = null;
   private stream: MediaStream | null = null;
-  private processor: ScriptProcessorNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private isConnected = false;
 
   // Callbacks
-  public onTranscriptionUpdate: (text: string, isFinal: boolean) => void = () => { };
-  public onError: (error: string) => void = () => { };
-  public onConnect: () => void = () => { };
-  public onDisconnect: () => void = () => { };
+  public onTranscriptionUpdate: (text: string, isFinal: boolean) => void = () => {};
+  public onError: (error: string) => void = () => {};
+  public onConnect: () => void = () => {};
+  public onDisconnect: () => void = () => {};
 
   private currentInputTranscription = '';
 
   constructor() {
-    // Initialize API client
-    // @ts-ignore process.env.VITE_GEMINI_API_KEY is injected by the environment
+    // @ts-ignore
     this.ai = new GoogleGenAI({ apiKey: process.env.VITE_GEMINI_API_KEY });
   }
 
   /**
-   * Connects to the Live API
+   * Connects to the Gemini Live API and waits for the session to be ready.
    */
   async connect() {
     try {
-      this.sessionPromise = this.ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      this.session = await this.ai.live.connect({
+        model: 'gemini-2.5-flash-preview-native-audio-dialog',
         callbacks: {
           onopen: () => {
-            console.log('Gemini Live Session Opened');
+            console.log('[GeminiLive] Session opened ✅');
+            this.isConnected = true;
             this.onConnect();
           },
           onmessage: (message: LiveServerMessage) => this.handleMessage(message),
           onerror: (e: ErrorEvent) => {
-            console.error('Gemini Live Error', e);
-            this.onError('Erro na conexão com a IA.');
+            console.error('[GeminiLive] WebSocket error ❌', e);
+            this.isConnected = false;
+            this.onError('Erro na conexão WebSocket com a IA.');
           },
           onclose: (e: CloseEvent) => {
-            console.log('Gemini Live Session Closed');
+            console.log(`[GeminiLive] Session closed (code=${e.code}, reason=${e.reason})`);
+            this.isConnected = false;
             this.onDisconnect();
           },
         },
         config: {
-          responseModalities: [Modality.AUDIO],
+          responseModalities: [Modality.TEXT],
           inputAudioTranscription: {},
           systemInstruction: `
             Você é um transcritor profissional de legendas ao vivo para Português do Brasil.
             Sua única função é ouvir o áudio e converter fielmente em texto bem pontuado.
             
             REGRAS RÍGIDAS:
-            1. NÃO inclua tags de metadados como <noise>, [risos], [applausos] ou *sons*. Ignore o que não for fala.
+            1. NÃO inclua tags de metadados como <noise>, [risos], [aplausos] ou *sons*. Ignore o que não for fala.
             2. Se o áudio for apenas ruído ou silêncio, NÃO GERE TEXTO. Fique em silêncio.
-            3. Não alucine textos em outros idiomas (Japonês, Chinês) se a fala for em Português.
+            3. Não alucine textos em outros idiomas (Japonês, Chinês, Inglês) se a fala for em Português.
             4. Mantenha a pontuação gramatical correta para facilitar a leitura em projeções.
+            5. NUNCA responda ao conteúdo do que está sendo dito. Apenas transcreva.
           `,
         },
       });
-      await this.sessionPromise;
     } catch (error: any) {
-      this.onError(error.message || 'Falha ao conectar.');
+      this.isConnected = false;
+      this.onError(error.message || 'Falha ao conectar com a API Gemini.');
+      throw error;
     }
   }
 
   /**
-   * Starts capturing audio from the specified source and streams it to the model.
+   * Starts capturing audio using AudioWorklet (runs in dedicated audio thread,
+   * immune to browser tab throttling and background suspension).
    */
   async startAudioStream(stream: MediaStream) {
-    if (!this.sessionPromise) {
+    if (!this.session) {
       throw new Error("Session not initialized. Call connect() first.");
     }
 
     this.stream = stream;
+
+    // Create AudioContext at the exact sample rate the API expects
     this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
       sampleRate: INPUT_SAMPLE_RATE,
+      latencyHint: 'interactive',
     });
 
-    this.source = this.inputAudioContext.createMediaStreamSource(this.stream);
+    // Load the AudioWorklet module from the public folder
+    await this.inputAudioContext.audioWorklet.addModule('/audio-processor.js');
 
-    this.processor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
+    this.source = this.inputAudioContext.createMediaStreamSource(stream);
 
-    this.processor.onaudioprocess = (e) => {
-      const inputData = e.inputBuffer.getChannelData(0);
-      const pcmBlob = this.createBlob(inputData);
+    // AudioWorkletNode runs in a separate audio rendering thread — can't be throttled
+    this.workletNode = new AudioWorkletNode(this.inputAudioContext, 'pcm-processor');
 
-      this.sessionPromise?.then((session) => {
-        session.sendRealtimeInput({ media: pcmBlob });
-      });
+    // Receive PCM chunks from the audio thread and send to Gemini
+    this.workletNode.port.onmessage = (event) => {
+      if (!this.isConnected || !this.session) return;
+
+      const pcmBuffer: ArrayBuffer = event.data.pcm;
+      const base64 = this.arrayBufferToBase64(pcmBuffer);
+
+      try {
+        this.session.sendRealtimeInput({
+          media: {
+            data: base64,
+            mimeType: 'audio/pcm;rate=16000',
+          }
+        });
+      } catch (err) {
+        console.warn('[GeminiLive] Failed to send audio chunk:', err);
+      }
     };
 
-    this.source.connect(this.processor);
-    this.processor.connect(this.inputAudioContext.destination);
+    this.source.connect(this.workletNode);
+    // Connect to destination to prevent Chrome from suspending the AudioContext
+    this.workletNode.connect(this.inputAudioContext.destination);
+
+    console.log('[GeminiLive] AudioWorklet streaming started 🎙️');
   }
 
   /**
-   * Stops audio capture and closes the session.
+   * Stops audio capture and closes the session gracefully.
    */
   async disconnect() {
-    if (this.processor) {
-      this.processor.disconnect();
-      this.processor = null;
+    this.isConnected = false;
+
+    if (this.workletNode) {
+      this.workletNode.port.onmessage = null;
+      this.workletNode.disconnect();
+      this.workletNode = null;
     }
     if (this.source) {
       this.source.disconnect();
       this.source = null;
     }
-    if (this.inputAudioContext) {
+    if (this.inputAudioContext && this.inputAudioContext.state !== 'closed') {
       await this.inputAudioContext.close();
       this.inputAudioContext = null;
     }
@@ -119,25 +148,29 @@ export class GeminiLiveService {
       this.stream = null;
     }
 
-    this.sessionPromise?.then(session => {
-      // @ts-ignore 
-      if (typeof session.close === 'function') {
-        session.close();
+    if (this.session) {
+      try {
+        if (typeof this.session.close === 'function') {
+          await this.session.close();
+        }
+      } catch (_) {
+        // Ignore errors on close
       }
-    });
+      this.session = null;
+    }
 
-    this.sessionPromise = null;
     this.currentInputTranscription = '';
+    console.log('[GeminiLive] Disconnected cleanly 🔌');
   }
 
   /**
-   * Remove tags indesejadas como <noise> e caracteres estranhos
+   * Remove unwanted tags like <noise> and strange characters.
    */
   private cleanText(text: string): string {
     return text
-      .replace(/<.*?>/g, '')      // Remove tags XML como <noise>
-      .replace(/\[.*?\]/g, '')    // Remove coisas como [som]
-      .replace(/^\s*[-*]\s*/, '') // Remove marcadores de lista no inicio
+      .replace(/<.*?>/g, '')      // Remove XML tags like <noise>
+      .replace(/\[.*?\]/g, '')    // Remove things like [sound]
+      .replace(/^\s*[-*]\s*/, '') // Remove list markers at start
       .trim();
   }
 
@@ -146,8 +179,6 @@ export class GeminiLiveService {
       const rawText = message.serverContent.inputTranscription.text;
       if (rawText) {
         this.currentInputTranscription += rawText;
-
-        // Limpa visualmente para a atualização parcial
         const cleanedPartial = this.cleanText(this.currentInputTranscription);
         if (cleanedPartial) {
           this.onTranscriptionUpdate(cleanedPartial, false);
@@ -158,36 +189,21 @@ export class GeminiLiveService {
     if (message.serverContent?.turnComplete) {
       if (this.currentInputTranscription.trim()) {
         const finalCleaned = this.cleanText(this.currentInputTranscription);
-
-        // Só envia se sobrou algum texto após a limpeza
         if (finalCleaned.length > 0) {
           this.onTranscriptionUpdate(finalCleaned, true);
         }
-
         this.currentInputTranscription = '';
       }
     }
   }
 
-  private createBlob(data: Float32Array) {
-    const l = data.length;
-    const int16 = new Int16Array(l);
-    for (let i = 0; i < l; i++) {
-      int16[i] = Math.max(-1, Math.min(1, data[i])) * 32768;
-    }
-
-    return {
-      data: this.arrayBufferToBase64(int16.buffer),
-      mimeType: 'audio/pcm;rate=16000',
-    };
-  }
-
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
-    let binary = '';
     const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    let binary = '';
+    // Process in chunks to avoid call stack overflow on large buffers
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
     }
     return btoa(binary);
   }
