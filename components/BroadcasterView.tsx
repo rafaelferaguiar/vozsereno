@@ -202,8 +202,8 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
-            autoGainControl: true,
-            noiseSuppression: true,
+            autoGainControl: false, // <-- Browser gain control distorts raw PCM needed for GenAI
+            noiseSuppression: false, // <-- Browser noise suppression causes artificial silence gaps that close the session
             channelCount: 1,
             sampleRate: 16000,
           }
