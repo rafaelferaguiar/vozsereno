@@ -190,9 +190,52 @@ export class GeminiLiveService {
       const rawText = message.serverContent.inputTranscription.text;
       if (rawText) {
         this.currentInputTranscription += rawText;
-        const cleanedPartial = this.cleanText(this.currentInputTranscription);
+        let cleanedPartial = this.cleanText(this.currentInputTranscription);
+        
         if (cleanedPartial) {
-          this.onTranscriptionUpdate(cleanedPartial, false);
+          const MAX_LENGTH = 160;
+          
+          if (cleanedPartial.length > MAX_LENGTH) {
+            // Tenta achar um ponto de quebra lógico (pontuação) na segunda metade da frase
+            let splitIndex = Math.max(
+              cleanedPartial.lastIndexOf('. '),
+              cleanedPartial.lastIndexOf(', '),
+              cleanedPartial.lastIndexOf('? '),
+              cleanedPartial.lastIndexOf('! ')
+            );
+
+            // Se não tiver pontuação perto do fim, corta no último espaço
+            if (splitIndex < MAX_LENGTH / 2) {
+              splitIndex = cleanedPartial.lastIndexOf(' ');
+            }
+
+            // Fallback de segurança caso seja uma palavra gigantesca sem espaços
+            if (splitIndex <= 0) {
+              splitIndex = cleanedPartial.length;
+            } else {
+              // Avançamos 1 para incluir o caractere (espaço, vírgula, ponto) na parte finalizada
+              splitIndex += 1;
+            }
+
+            const toFinalize = cleanedPartial.substring(0, splitIndex).trim();
+            const keptPartial = cleanedPartial.substring(splitIndex).trim();
+
+            if (toFinalize) {
+              this.onTranscriptionUpdate(toFinalize, true);
+            }
+
+            // O que sobrou vira nossa nova base
+            this.currentInputTranscription = keptPartial;
+            
+            // Emite o restante imediatamente como partial
+            if (keptPartial) {
+              this.onTranscriptionUpdate(keptPartial, false);
+            } else {
+              this.onTranscriptionUpdate('', false);
+            }
+          } else {
+            this.onTranscriptionUpdate(cleanedPartial, false);
+          }
         }
       }
     }
