@@ -15,6 +15,7 @@ const DownloadIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" he
 const ExitIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>;
 const PauseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="4" height="16" x="6" y="4" /><rect width="4" height="16" x="14" y="4" /></svg>;
 const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3" /></svg>;
+const EyeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>;
 
 const PRESET_MESSAGES = [
   "Momento do louvor, as letras estarão passando no telão.",
@@ -35,6 +36,7 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
   const [isPaused, setIsPaused] = useState(false);
   const [pauseMessage, setPauseMessage] = useState('');
   const [reconnecting, setReconnecting] = useState(false);
+  const [viewerCount, setViewerCount] = useState(0);
 
   const liveService = useRef<GeminiLiveService>(new GeminiLiveService());
   const broadcastChannel = useRef<BroadcastChannel | null>(null);
@@ -51,6 +53,24 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
     broadcastChannel.current = new BroadcastChannel('voz_sereno_channel');
     return () => {
       broadcastChannel.current?.close();
+    };
+  }, []);
+
+  // Monitora mudança na base de Espectadores
+  useEffect(() => {
+    const presenceChannel = supabase.channel('viewers_presence');
+    
+    // Configura listeners para quando o estado houver sincronização (alguém entrou/saiu)
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const newState = presenceChannel.presenceState();
+        // presenceState() retorna um objeto cujas chaves são os id de cada espectador conectado
+        setViewerCount(Object.keys(newState).length);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(presenceChannel);
     };
   }, []);
 
@@ -270,6 +290,10 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
         </div>
 
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-800/50 border border-slate-700/50 rounded-full cursor-default" title="Espectadores ao Vivo">
+            <span className="text-emerald-400 mt-[1px]"><EyeIcon /></span>
+            <span className="text-sm font-semibold text-slate-200">{viewerCount}</span>
+          </div>
           {status.error && (
             <span className="text-red-400 text-sm bg-red-900/20 px-3 py-1 rounded-full border border-red-900/50">
               {status.error}

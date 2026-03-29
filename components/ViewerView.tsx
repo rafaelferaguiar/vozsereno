@@ -71,7 +71,6 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin, isLiveExter
 
     fetchInitialState();
 
-    // 2. Inscreve para atualizações em tempo real (excetois_live que já é tratado no App.tsx ou acima)
     const channel = supabase
       .channel('segments-updates')
       .on(
@@ -99,8 +98,23 @@ export const ViewerView: React.FC<ViewerViewProps> = ({ onOpenAdmin, isLiveExter
       )
       .subscribe();
 
+    // 3. Inscreve para Contagem de Espectadores (Presence)
+    const viewerId = crypto.randomUUID();
+    const presenceChannel = supabase.channel('viewers_presence', {
+      config: { presence: { key: viewerId } }
+    });
+
+    presenceChannel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        const trackStatus = await presenceChannel.track({
+          online_at: new Date().toISOString(),
+        });
+      }
+    });
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(presenceChannel);
     };
   }, [isLiveExternal]);
 
