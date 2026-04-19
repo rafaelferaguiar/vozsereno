@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GeminiLiveService } from '../services/geminiLiveService';
+import { DeepgramLiveService } from '../services/deepgramLiveService';
 import { AudioSourceType, TranscriptSegment, LiveStatus, BroadcastMessage } from '../types';
 import { Button } from './Button';
 import { TranscriptDisplay } from './TranscriptDisplay';
@@ -38,7 +38,7 @@ export const BroadcasterView: React.FC<BroadcasterViewProps> = ({ onBack }) => {
   const [reconnecting, setReconnecting] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
 
-  const liveService = useRef<GeminiLiveService>(new GeminiLiveService());
+  const liveService = useRef<DeepgramLiveService>(new DeepgramLiveService());
   const broadcastChannel = useRef<BroadcastChannel | null>(null);
   const intentionalStop = useRef(false);
   const isPausedRef = useRef(false);
